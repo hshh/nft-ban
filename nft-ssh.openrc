@@ -1,0 +1,38 @@
+#!/sbin/openrc-run
+# version: 20260407.03
+_service="ssh"
+_rootdir="/usr/local/nft-ban"
+_nft="nft.sh"
+name="nft-ban-$_service"
+description="nftables protect $_service"
+command="$_rootdir/alpine-$_service.sh"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+rc_cgroup_cleanup="yes"
+
+depend() {
+    need net
+    after nftables
+}
+
+start_pre() {
+	"$_rootdir/$_nft" $_service start
+}
+
+stop_post() {
+    "$_rootdir/$_nft" $_service stop
+
+    local cg_path="/sys/fs/cgroup/openrc.${RC_SVCNAME}"
+
+    if [ -f "${cg_path}/cgroup.kill" ]; then
+        echo 1 > "${cg_path}/cgroup.kill"
+    else
+        if [ -f "${cg_path}/cgroup.procs" ]; then
+            for p in $(cat "${cg_path}/cgroup.procs"); do
+                kill -9 "$p" 2>/dev/null
+            done
+        fi
+    fi
+
+    return 0
+}

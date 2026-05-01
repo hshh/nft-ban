@@ -1,0 +1,18 @@
+[Unit]
+Description=nft-ssh
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/nft-ban/systemd-ssh.sh
+ExecStartPre=/usr/local/nft-ban/nft.sh ssh start
+ExecStopPost=/usr/local/nft-ban/nft.sh ssh stop
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+LimitNOFILE=65535
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
