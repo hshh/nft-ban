@@ -1,5 +1,5 @@
 #!/bin/sh
-# version: 20260501.05
+# version: 20260502.01
 # nft.sh service action [ip]
 # service settings: [service].conf
 # service nft ruleset: [service].nft
@@ -7,12 +7,14 @@
 # Global configuration defaults for banning subnets and nftables naming
 BAN_IPV4_SUBNET="/32"
 BAN_IPV6_SUBNET="/64"
-DEFAULT_NFT_BLACK4="black4"
-DEFAULT_NFT_BLACK6="black6"
+DEFAULT_BAN_TIMEOUT="10m"
+DEFAULT_NFT_SET_BLACK4="black4"
+DEFAULT_NFT_SET_BLACK6="black6"
+DEFAULT_NFT_SET_SERVICE_PORT="service_port"
+DEFAULT_NFT_SET_WHITE4="white4"
+DEFAULT_NFT_SET_WHITE6="white6"
 DEFAULT_NFT_TABLE_PREFIX="ban-"
 DEFAULT_NFT_TABLE_TYPE="inet"
-DEFAULT_NFT_WHITE4="white4"
-DEFAULT_NFT_WHITE6="white6"
 DEFAULT_WHITE4_SUFFIX="-white4.txt"
 DEFAULT_WHITE6_SUFFIX="-white6.txt"
 FILE_NFT_RULES_SUFFIX=".nft"
@@ -43,6 +45,16 @@ compare_version() {
 	return $result
 }
 
+check_nft_timeout() {
+	[ -z "$1" ] && return 1
+	printf "%s\n" "$1" | grep -qE '^([1-9][0-9]*d)?([1-9][0-9]*h)?([1-9][0-9]*m)?([1-9][0-9]*s)?$'
+}
+
+check_int_list() {
+	[ -z "$1" ] && return 1
+	printf "%s\n" "$1" | grep -qE '^ *[1-9][0-9]*( *, *[1-9][0-9]*)* *$'
+}
+
 # Adds or deletes an IP address to/from the appropriate nftables set (IPv4/IPv6)
 # nft_set_action action ip
 nft_set_action() {
@@ -53,16 +65,22 @@ nft_set_action() {
 
 	local _ip="$2"
 	local _set
+	local _timeout
+
 	if [ "${_ip#*:}" != "$_ip" ]; then
-		_set=$NFT_BLACK6
+		_set=$NFT_SET_BLACK6
 		[ "${_ip#*/}" = "$_ip" ] && _ip="$_ip$BAN_IPV6_SUBNET"
 	else
-		_set=$NFT_BLACK4
+		_set=$NFT_SET_BLACK4
 		[ "${_ip#*/}" = "$_ip" ] && _ip="$_ip$BAN_IPV4_SUBNET"
 	fi
 
-	nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip}"
-	[ -n "$DEBUG" ] && echo nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip}" | logger -t nft.sh
+	if [ "$_action" = "add" ]; then
+		_timeout="timeout $BAN_TIMEOUT"
+	fi
+
+	nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip $_timeout}"
+	[ -n "$DEBUG" ] && echo nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip $_timeout}" | logger -t nft.sh
 }
 
 # Removes the nftables table associated with the specified service
@@ -99,8 +117,8 @@ do_update_swap() {
 # Updates both IPv4 and IPv6 whitelist sets from their respective files
 update() {
 	local _suffix="-temp"
-	do_update_swap "$NFT_WHITE4" "$_suffix" "$_SERVICE$WHITE4_SUFFIX"
-	do_update_swap "$NFT_WHITE6" "$_suffix" "$_SERVICE$WHITE6_SUFFIX"
+	do_update_swap "$NFT_SET_WHITE4" "$_suffix" "$_SERVICE$WHITE4_SUFFIX"
+	do_update_swap "$NFT_SET_WHITE6" "$_suffix" "$_SERVICE$WHITE6_SUFFIX"
 }
 
 # Change directory to where the script is located to handle relative paths
@@ -117,20 +135,25 @@ _file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
 [ -r "$_file_settings" ] && eval $(grep -Ev '^[[:blank:]]*#|^[[:blank:]]*$' "$_file_settings" | sed -e "s/'/'\\\''/g" -e "s/=\(.*\)/='\1'/g")
 
 # Set default values for variables if they weren't defined in the config file
+: ${BAN_TIMEOUT:=$DEFAULT_BAN_TIMEOUT}
 : ${FILE_NFT_RULES:="$_SERVICE$FILE_NFT_RULES_SUFFIX"}
-: ${NFT_BLACK4:=$DEFAULT_NFT_BLACK4}
-: ${NFT_BLACK6:=$DEFAULT_NFT_BLACK6}
+: ${NFT_SET_BLACK4:=$DEFAULT_NFT_SET_BLACK4}
+: ${NFT_SET_BLACK6:=$DEFAULT_NFT_SET_BLACK6}
+: ${NFT_SET_SERVICE_PORT:=$DEFAULT_NFT_SET_SERVICE_PORT}
+: ${NFT_SET_WHITE4:=$DEFAULT_NFT_SET_WHITE4}
+: ${NFT_SET_WHITE6:=$DEFAULT_NFT_SET_WHITE6}
 : ${NFT_TABLE_PREFIX:=$DEFAULT_NFT_TABLE_PREFIX}
 : ${NFT_TABLE_TYPE:=$DEFAULT_NFT_TABLE_TYPE}
 : ${NFT_TABLE:=$NFT_TABLE_PREFIX$_SERVICE}
-: ${NFT_WHITE4:=$DEFAULT_NFT_WHITE4}
-: ${NFT_WHITE6:=$DEFAULT_NFT_WHITE6}
+: ${SERVICE_PORT:?"Need to set the SERVICE_PORT variable."}
 : ${WHITE4_SUFFIX:=$DEFAULT_WHITE4_SUFFIX}
 : ${WHITE6_SUFFIX:=$DEFAULT_WHITE6_SUFFIX}
-: ${SERVICE_PORT:?"Need to set the SERVICE_PORT variable."}
 
 # Verify environment requirements
 [ -s "$FILE_NFT_RULES" ] || error "Invalid file: $FILE_NFT_RULES"
+check_nft_timeout "$BAN_TIMEOUT" || BAN_TIMEOUT=$DEFAULT_BAN_TIMEOUT
+check_int_list "$SERVICE_PORT" || error "Invalid port: $SERVICE_PORT"
+
 # check nft
 which nft >/dev/null 2>&1 || error "Require nft"
 _nft_version=$(nft -v | awk '{sub(/v/,"",$2); print $2}')
@@ -150,13 +173,9 @@ _ip="$3"
 case "$_action" in
 	# Initialization: Stop existing table and load rules from the .nft file
 	start|reload|restart)
-		stop
-		# nft v1.0.0+ introduced support for the -D flag.
-		if [ $_NFT -eq 3 ]; then
-			sed '1i\define SERVICE_PORT='$SERVICE_PORT "$FILE_NFT_RULES" | nft -f -
-		else
-			nft -D SERVICE_PORT=$SERVICE_PORT -f "$FILE_NFT_RULES"
-		fi
+		stop >/dev/null 2>&1
+
+		( cat "$FILE_NFT_RULES"; printf "\nadd element $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_SERVICE_PORT {$SERVICE_PORT}\n" ) | nft -f -
 
 		update >/dev/null 2>&1
 		;;
@@ -178,8 +197,8 @@ case "$_action" in
 	# Clear all entries from the blacklist sets
 	flush)
 		nft -f - <<-EOF
-			flush set $NFT_TABLE_TYPE $NFT_TABLE $NFT_BLACK4
-			flush set $NFT_TABLE_TYPE $NFT_TABLE $NFT_BLACK6
+			flush set $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_BLACK4
+			flush set $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_BLACK6
 		EOF
 		;;
 	# Display the full nftables configuration for this service
@@ -188,8 +207,8 @@ case "$_action" in
 		;;
 	# List all currently banned IP addresses
 	list)
-		nft list set $NFT_TABLE_TYPE $NFT_TABLE $NFT_BLACK4
-		nft list set $NFT_TABLE_TYPE $NFT_TABLE $NFT_BLACK6
+		nft list set $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_BLACK4
+		nft list set $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_BLACK6
 		;;
 	help|--help|-h)
 		usage
