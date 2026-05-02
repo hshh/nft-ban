@@ -1,12 +1,12 @@
 #!/bin/sh
-# version: 20260502.01
+# version: 20260502.02
 # nft.sh service action [ip]
 # service settings: [service].conf
 # service nft ruleset: [service].nft
 
 # Global configuration defaults for banning subnets and nftables naming
-BAN_IPV4_SUBNET="/32"
-BAN_IPV6_SUBNET="/64"
+DEFAULT_BAN_IPV4_SUBNET="/32"
+DEFAULT_BAN_IPV6_SUBNET="/64"
 DEFAULT_BAN_TIMEOUT="10m"
 DEFAULT_NFT_SET_BLACK4="black4"
 DEFAULT_NFT_SET_BLACK6="black6"
@@ -17,6 +17,7 @@ DEFAULT_NFT_TABLE_PREFIX="ban-"
 DEFAULT_NFT_TABLE_TYPE="inet"
 DEFAULT_WHITE4_SUFFIX="-white4.txt"
 DEFAULT_WHITE6_SUFFIX="-white6.txt"
+# const
 FILE_NFT_RULES_SUFFIX=".nft"
 FILE_SETTINGS_SUFFIX=".conf"
 
@@ -130,13 +131,18 @@ cd "$_currdir" || exit 1
 _SERVICE="$1"
 [ -z "$_SERVICE" ] && usage
 
+: ${FILE_NFT_RULES:="$_SERVICE$FILE_NFT_RULES_SUFFIX"}
+
 # Load optional variables from the service's .conf file if available
 _file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
 [ -r "$_file_settings" ] && eval $(grep -Ev '^[[:blank:]]*#|^[[:blank:]]*$' "$_file_settings" | sed -e "s/'/'\\\''/g" -e "s/=\(.*\)/='\1'/g")
 
 # Set default values for variables if they weren't defined in the config file
+: ${SERVICE_PORT:?"Need to set the SERVICE_PORT variable."}
+
+: ${BAN_IPV4_SUBNET:=$DEFAULT_BAN_IPV4_SUBNET}
+: ${BAN_IPV6_SUBNET:=$DEFAULT_BAN_IPV6_SUBNET}
 : ${BAN_TIMEOUT:=$DEFAULT_BAN_TIMEOUT}
-: ${FILE_NFT_RULES:="$_SERVICE$FILE_NFT_RULES_SUFFIX"}
 : ${NFT_SET_BLACK4:=$DEFAULT_NFT_SET_BLACK4}
 : ${NFT_SET_BLACK6:=$DEFAULT_NFT_SET_BLACK6}
 : ${NFT_SET_SERVICE_PORT:=$DEFAULT_NFT_SET_SERVICE_PORT}
@@ -145,7 +151,6 @@ _file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
 : ${NFT_TABLE_PREFIX:=$DEFAULT_NFT_TABLE_PREFIX}
 : ${NFT_TABLE_TYPE:=$DEFAULT_NFT_TABLE_TYPE}
 : ${NFT_TABLE:=$NFT_TABLE_PREFIX$_SERVICE}
-: ${SERVICE_PORT:?"Need to set the SERVICE_PORT variable."}
 : ${WHITE4_SUFFIX:=$DEFAULT_WHITE4_SUFFIX}
 : ${WHITE6_SUFFIX:=$DEFAULT_WHITE6_SUFFIX}
 
