@@ -32,7 +32,6 @@ table inet ban-ssh {
 		gc-interval 1m
 		auto-merge
 	}
-
 	set black6 {
 		type ipv6_addr
 		flags interval, timeout
@@ -40,19 +39,16 @@ table inet ban-ssh {
 		gc-interval 1m
 		auto-merge
 	}
-
 	set white4 {
 		type ipv4_addr
 		flags interval
 		auto-merge
 	}
-
 	set white6 {
 		type ipv6_addr
 		flags interval
 		auto-merge
 	}
-
 	chain input {
 		type filter hook input priority filter; policy accept;
 		tcp dport @service_port ip saddr @private4 counter accept

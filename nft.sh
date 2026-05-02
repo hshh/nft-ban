@@ -1,6 +1,6 @@
 #!/bin/sh
-# version: 20260502.02
-# nft.sh service action [ip]
+# version: 20260502.04
+# nft.sh service action [ip] [timeout]
 # service settings: [service].conf
 # service nft ruleset: [service].nft
 
@@ -18,6 +18,7 @@ DEFAULT_NFT_TABLE_TYPE="inet"
 DEFAULT_WHITE4_SUFFIX="-white4.txt"
 DEFAULT_WHITE6_SUFFIX="-white6.txt"
 # const
+DEBUG_LOGGER_TAG="nft.sh"
 FILE_NFT_RULES_SUFFIX=".nft"
 FILE_SETTINGS_SUFFIX=".conf"
 
@@ -31,7 +32,7 @@ error() {
 
 # Display usage instructions
 usage() {
-	error "Usage: $0 service start|stop|update|ban|unban|flush|show|list [ip]"
+	error "Usage: $0 service start|stop|update|ban|unban|flush|show|list [ip] [timeout]"
 }
 
 # $1 = $2, return 0
@@ -56,6 +57,13 @@ check_int_list() {
 	printf "%s\n" "$1" | grep -qE '^ *[1-9][0-9]*( *, *[1-9][0-9]*)* *$'
 }
 
+run_and_log() {
+	"$@"
+	local _ret=$?
+	[ -n "$DEBUG" ] && logger -t "$DEBUG_LOGGER_TAG" "$*"
+	return "$_ret"
+}
+
 # Adds or deletes an IP address to/from the appropriate nftables set (IPv4/IPv6)
 # nft_set_action action ip
 nft_set_action() {
@@ -65,8 +73,8 @@ nft_set_action() {
 	[ "$1" = "delete" ] && _action="delete"
 
 	local _ip="$2"
+	local _timeout="$3"
 	local _set
-	local _timeout
 
 	if [ "${_ip#*:}" != "$_ip" ]; then
 		_set=$NFT_SET_BLACK6
@@ -77,11 +85,11 @@ nft_set_action() {
 	fi
 
 	if [ "$_action" = "add" ]; then
-		_timeout="timeout $BAN_TIMEOUT"
+		check_nft_timeout "$_timeout" || _timeout=$BAN_TIMEOUT
+		_timeout="timeout $_timeout"
 	fi
 
-	nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip $_timeout}"
-	[ -n "$DEBUG" ] && echo nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip $_timeout}" | logger -t nft.sh
+	run_and_log nft $_action element $NFT_TABLE_TYPE $NFT_TABLE $_set "{$_ip $_timeout}"
 }
 
 # Removes the nftables table associated with the specified service
@@ -135,11 +143,9 @@ _SERVICE="$1"
 
 # Load optional variables from the service's .conf file if available
 _file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
-[ -r "$_file_settings" ] && eval $(grep -Ev '^[[:blank:]]*#|^[[:blank:]]*$' "$_file_settings" | sed -e "s/'/'\\\''/g" -e "s/=\(.*\)/='\1'/g")
+[ -s "$_file_settings" ] && eval "$(awk -F= -v sq="'" '/^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next } { idx = index($0, "="); if (idx == 0) next; key = substr($0, 1, idx - 1); val = substr($0, idx + 1); sub(/^[[:blank:]]+/, "", key); sub(/[[:blank:]]+$/, "", key); if (key !~ /^[a-zA-Z_][a-zA-Z0-9_]*$/) { printf "echo %s >&2\n", sq "Warning: Invalid key ignored -> " key sq; next } gsub(sq, sq "\\" sq sq, val); printf "%s=%s%s%s\n", key, sq, val, sq }' "$_file_settings")"
 
 # Set default values for variables if they weren't defined in the config file
-: ${SERVICE_PORT:?"Need to set the SERVICE_PORT variable."}
-
 : ${BAN_IPV4_SUBNET:=$DEFAULT_BAN_IPV4_SUBNET}
 : ${BAN_IPV6_SUBNET:=$DEFAULT_BAN_IPV6_SUBNET}
 : ${BAN_TIMEOUT:=$DEFAULT_BAN_TIMEOUT}
@@ -157,13 +163,18 @@ _file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
 # Verify environment requirements
 [ -s "$FILE_NFT_RULES" ] || error "Invalid file: $FILE_NFT_RULES"
 check_nft_timeout "$BAN_TIMEOUT" || BAN_TIMEOUT=$DEFAULT_BAN_TIMEOUT
-check_int_list "$SERVICE_PORT" || error "Invalid port: $SERVICE_PORT"
+if [ -n "$SERVICE_PORT" ]; then
+	check_int_list "$SERVICE_PORT" || error "Invalid port: $SERVICE_PORT"
+elif [ -z "$NO_SERVICE_PORT" ]; then
+	echo "WARNING: SERVICE_PORT is not defined"
+	echo "If the rule relies on specific TCP/UDP ports, be sure to define SERVICE_PORT."
+fi
 
 # check nft
 which nft >/dev/null 2>&1 || error "Require nft"
 _nft_version=$(nft -v | awk '{sub(/v/,"",$2); print $2}')
 if [ $(compare_version "$_nft_version" "1.0.7") -eq 1 ]; then
-	# nft full function
+	# nft is the full-featured version.
 	_NFT=1
 elif [ $(compare_version "$_nft_version" "1.0.0") -eq 1 ]; then
 	# nft without destory
@@ -175,12 +186,15 @@ fi
 
 _action="$2"
 _ip="$3"
+_timeout="$4"
+
 case "$_action" in
 	# Initialization: Stop existing table and load rules from the .nft file
 	start|reload|restart)
 		stop >/dev/null 2>&1
 
-		( cat "$FILE_NFT_RULES"; printf "\nadd element $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_SERVICE_PORT {$SERVICE_PORT}\n" ) | nft -f -
+		nft -f "$FILE_NFT_RULES"
+		[ -n "$SERVICE_PORT" ] && nft add element $NFT_TABLE_TYPE $NFT_TABLE $NFT_SET_SERVICE_PORT "{ $SERVICE_PORT }"
 
 		update >/dev/null 2>&1
 		;;
@@ -192,12 +206,12 @@ case "$_action" in
 		update >/dev/null 2>&1
 		;;
 	# Manually ban a specific IP
-	ban)
-		nft_set_action add $_ip
+	ban|add)
+		nft_set_action add "$_ip" "$_timeout"
 		;;
 	# Manually remove a ban for a specific IP
-	unban)
-		nft_set_action delete $_ip
+	unban|del|delete)
+		nft_set_action delete "$_ip" "$_timeout"
 		;;
 	# Clear all entries from the blacklist sets
 	flush)

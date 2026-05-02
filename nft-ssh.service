@@ -10,7 +10,6 @@ ExecStopPost=/usr/local/nft-ban/nft.sh ssh stop
 PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=full
-LimitNOFILE=65535
 Restart=always
 RestartSec=30
 

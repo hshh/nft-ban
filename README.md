@@ -43,8 +43,8 @@ Edit the `/usr/local/nft-ban/ssh.conf` file to adjust settings:
 | :--- | :--- |
 | `DEBUG` | Enable debug logging (set to 1). Show the currently running ban/unban NFT command. |
 | `SERVICE_PORT` | The port your SSH service is listening on (usually 22, multiple port seperate by comma). |
-| `BAN_IPV4_SUBNET` | IPv4 CIDR prefix for banning (e.g., `32` for single IP, `24` for subnet). Default: 32 |
-| `BAN_IPV6_SUBNET` | IPv6 CIDR prefix for banning (e.g., `128` or `64`). Default: 64 |
+| `BAN_IPV4_SUBNET` | IPv4 CIDR prefix for banning (e.g., `/32` for single IP, `/24` for subnet). Default: /32 |
+| `BAN_IPV6_SUBNET` | IPv6 CIDR prefix for banning (e.g., `/128` or `/64`). Default: /64 |
 | `BAN_TIMEOUT` | Ban timeout, format NdNhNmNs, N is a positive integer, d days, h hours, m minutes, s seconds. Default: 10m |
 | `NFT_SET_BLACK4` | Name of the IPv4 blacklist set. Default: black4 |
 | `NFT_SET_BLACK6` | Name of the IPv6 blacklist set. Default: black6 |
