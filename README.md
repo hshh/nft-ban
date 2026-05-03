@@ -43,7 +43,7 @@ Edit the `/usr/local/nft-ban/ssh.conf` file to adjust settings:
 | :--- | :--- |
 | `DEBUG` | Enable debug logging (set to 1). Show the currently running ban/unban NFT command. default: disable |
 | `GLOBAL_WHITELIST` | Use global whitelist file. default: disable |
-| `NO_SERVICE_PORT` | Don't display no SERVICE_PORT defined warnning. default: disable |
+| `NO_SERVICE_PORT` | Do not display a warning when SERVICE_PORT is undefined. default: disable |
 | `SERVICE_PORT` | The port your SSH service is listening on (usually 22, multiple port seperate by comma). |
 | `BAN_IPV4_SUBNET` | IPv4 CIDR prefix for banning (e.g., `/32` for single IP, `/24` for subnet). Default: /32 |
 | `BAN_IPV6_SUBNET` | IPv6 CIDR prefix for banning (e.g., `/128` or `/64`). Default: /64 |
