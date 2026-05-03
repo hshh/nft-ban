@@ -23,7 +23,7 @@ cd /usr/local/nft-ban
 
 #### For systemd-based Linux (Ubuntu, Debian, CentOS, etc.):
 ```bash
-sudo cp nft-ssh.service /etc/systemd/system/
+sudo cp ssh/nft-ssh.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl start nft-ssh
 sudo systemctl enable nft-ssh
@@ -31,7 +31,7 @@ sudo systemctl enable nft-ssh
 
 #### For openrc-based Linux (Alpine, Gentoo, etc.):
 ```bash
-install -c nft-ssh.openrc /etc/init.d/nft-ssh
+install -c ssh/nft-ssh.openrc /etc/init.d/nft-ssh
 rc-update add nft-ssh default
 rc-service nft-ssh start
 ```
@@ -41,11 +41,15 @@ Edit the `/usr/local/nft-ban/ssh.conf` file to adjust settings:
 
 | Variable | Description |
 | :--- | :--- |
-| `DEBUG` | Enable debug logging (set to 1). Show the currently running ban/unban NFT command. |
+| `DEBUG` | Enable debug logging (set to 1). Show the currently running ban/unban NFT command. default: disable |
+| `GLOBAL_WHITELIST` | Use global whitelist file. default: disable |
+| `NO_SERVICE_PORT` | Don't display no SERVICE_PORT defined warnning. default: disable |
 | `SERVICE_PORT` | The port your SSH service is listening on (usually 22, multiple port seperate by comma). |
 | `BAN_IPV4_SUBNET` | IPv4 CIDR prefix for banning (e.g., `/32` for single IP, `/24` for subnet). Default: /32 |
 | `BAN_IPV6_SUBNET` | IPv6 CIDR prefix for banning (e.g., `/128` or `/64`). Default: /64 |
 | `BAN_TIMEOUT` | Ban timeout, format NdNhNmNs, N is a positive integer, d days, h hours, m minutes, s seconds. Default: 10m |
+| `FILE_WHITE4` | IPv4 whitelist filename. Default: white4.txt |
+| `FILE_WHITE6` | IPv6 whitelist filename. Default: white6.txt |
 | `NFT_SET_BLACK4` | Name of the IPv4 blacklist set. Default: black4 |
 | `NFT_SET_BLACK6` | Name of the IPv6 blacklist set. Default: black6 |
 | `NFT_SET_SERVICE_PORT` | Name of the service port set. Default: service_port |
@@ -53,10 +57,7 @@ Edit the `/usr/local/nft-ban/ssh.conf` file to adjust settings:
 | `NFT_SET_WHITE6` | Name of the IPv6 whitelist set. Default: white6 |
 | `NFT_TABLE_PREFIX` | Prefix for the nftables table name. Default: ban- |
 | `NFT_TABLE_TYPE` | Type of nftables table (ip or inet). Default: inet |
-| `WHITE4_SUFFIX` | IPv4 whitelist file suffix. Default: -white4.txt |
-| `WHITE6_SUFFIX` | IPv6 whitelist file suffix. Default: -white6.txt |
-
-Create ssh-white4.txt and ssh-white6.txt by sampling from white4.txt and white6.txt, respectively.
+| `NFT_TABLE` | nftables table name. Default: $NFT_TABLE_PREFIX$_SERVICE |
 
 ## License
 BSD-3-Clause license
