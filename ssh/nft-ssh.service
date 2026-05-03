@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/nft-ban/systemd-ssh.sh
+ExecStart=/usr/local/nft-ban/ssh/ssh.sh
 ExecStartPre=/usr/local/nft-ban/nft.sh ssh start
 ExecStopPost=/usr/local/nft-ban/nft.sh ssh stop
 PrivateTmp=yes
