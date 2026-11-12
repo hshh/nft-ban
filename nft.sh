@@ -1,5 +1,5 @@
 #!/bin/sh
-# version: 20260502.04
+# version: 20260503.01
 # nft.sh service action [ip] [timeout]
 # service settings: [service].conf
 # service nft ruleset: [service].nft
@@ -15,12 +15,12 @@ DEFAULT_NFT_SET_WHITE4="white4"
 DEFAULT_NFT_SET_WHITE6="white6"
 DEFAULT_NFT_TABLE_PREFIX="ban-"
 DEFAULT_NFT_TABLE_TYPE="inet"
-DEFAULT_WHITE4_SUFFIX="-white4.txt"
-DEFAULT_WHITE6_SUFFIX="-white6.txt"
+DEFAULT_FILE_WHITE4="white4.txt"
+DEFAULT_FILE_WHITE6="white6.txt"
 # const
 DEBUG_LOGGER_TAG="nft.sh"
-FILE_NFT_RULES_SUFFIX=".nft"
-FILE_SETTINGS_SUFFIX=".conf"
+FILE_NFT_RULES="nft.conf"
+FILE_CONFIG="config.conf"
 
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin
 
@@ -104,11 +104,11 @@ stop() {
 
 # Updates a set by populating a temporary set first and then swapping it to minimize downtime
 # The nft command suffers from slow performance due to hostname resolution.
-# do_update_swap set_name temp_suffix file
+# usage: do_update_swap set_name set_name_temp whitelist_file
 do_update_swap() {
 	if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then return 1; fi
 	local _set_name="$1"
-	local _set_name_temp="$_set_name$2"
+	local _set_name_temp="$2"
 	local _file="$3"
 	[ ! -s "$_file" ] && return 0
 
@@ -125,9 +125,8 @@ do_update_swap() {
 
 # Updates both IPv4 and IPv6 whitelist sets from their respective files
 update() {
-	local _suffix="-temp"
-	do_update_swap "$NFT_SET_WHITE4" "$_suffix" "$_SERVICE$WHITE4_SUFFIX"
-	do_update_swap "$NFT_SET_WHITE6" "$_suffix" "$_SERVICE$WHITE6_SUFFIX"
+	do_update_swap "$NFT_SET_WHITE4" "$NFT_SET_WHITE4-temp" "$FILE_WHITE4"
+	do_update_swap "$NFT_SET_WHITE6" "$NFT_SET_WHITE6-temp" "$FILE_WHITE6"
 }
 
 # Change directory to where the script is located to handle relative paths
@@ -139,16 +138,22 @@ cd "$_currdir" || exit 1
 _SERVICE="$1"
 [ -z "$_SERVICE" ] && usage
 
-: ${FILE_NFT_RULES:="$_SERVICE$FILE_NFT_RULES_SUFFIX"}
+FILE_CONFIG="$_SERVICE/$FILE_CONFIG"
+FILE_NFT_RULES="$_SERVICE/$FILE_NFT_RULES"
 
 # Load optional variables from the service's .conf file if available
-_file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
-[ -s "$_file_settings" ] && eval "$(awk -F= -v sq="'" '/^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next } { idx = index($0, "="); if (idx == 0) next; key = substr($0, 1, idx - 1); val = substr($0, idx + 1); sub(/^[[:blank:]]+/, "", key); sub(/[[:blank:]]+$/, "", key); if (key !~ /^[a-zA-Z_][a-zA-Z0-9_]*$/) { printf "echo %s >&2\n", sq "Warning: Invalid key ignored -> " key sq; next } gsub(sq, sq "\\" sq sq, val); printf "%s=%s%s%s\n", key, sq, val, sq }' "$_file_settings")"
+[ -s "$FILE_CONFIG" ] && eval "$(awk -F= -v sq="'" '/^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next } { idx = index($0, "="); if (idx == 0) next; key = substr($0, 1, idx - 1); val = substr($0, idx + 1); sub(/^[[:blank:]]+/, "", key); sub(/[[:blank:]]+$/, "", key); if (key !~ /^[a-zA-Z_][a-zA-Z0-9_]*$/) { printf "echo %s >&2\n", sq "Warning: Invalid key ignored -> " key sq; next } gsub(sq, sq "\\" sq sq, val); printf "%s=%s%s%s\n", key, sq, val, sq }' "$FILE_CONFIG")"
 
 # Set default values for variables if they weren't defined in the config file
+: ${DEBUG:=""}
+: ${GLOBAL_WHITELIST:=""}
+: ${NO_SERVICE_PORT:=""}
+
 : ${BAN_IPV4_SUBNET:=$DEFAULT_BAN_IPV4_SUBNET}
 : ${BAN_IPV6_SUBNET:=$DEFAULT_BAN_IPV6_SUBNET}
 : ${BAN_TIMEOUT:=$DEFAULT_BAN_TIMEOUT}
+: ${FILE_WHITE4:=$DEFAULT_FILE_WHITE4}
+: ${FILE_WHITE6:=$DEFAULT_FILE_WHITE6}
 : ${NFT_SET_BLACK4:=$DEFAULT_NFT_SET_BLACK4}
 : ${NFT_SET_BLACK6:=$DEFAULT_NFT_SET_BLACK6}
 : ${NFT_SET_SERVICE_PORT:=$DEFAULT_NFT_SET_SERVICE_PORT}
@@ -157,8 +162,6 @@ _file_settings="$_SERVICE$FILE_SETTINGS_SUFFIX"
 : ${NFT_TABLE_PREFIX:=$DEFAULT_NFT_TABLE_PREFIX}
 : ${NFT_TABLE_TYPE:=$DEFAULT_NFT_TABLE_TYPE}
 : ${NFT_TABLE:=$NFT_TABLE_PREFIX$_SERVICE}
-: ${WHITE4_SUFFIX:=$DEFAULT_WHITE4_SUFFIX}
-: ${WHITE6_SUFFIX:=$DEFAULT_WHITE6_SUFFIX}
 
 # Verify environment requirements
 [ -s "$FILE_NFT_RULES" ] || error "Invalid file: $FILE_NFT_RULES"
@@ -171,7 +174,7 @@ elif [ -z "$NO_SERVICE_PORT" ]; then
 fi
 
 # check nft
-which nft >/dev/null 2>&1 || error "Require nft"
+hash nft 2>/dev/null || error "Require nft"
 _nft_version=$(nft -v | awk '{sub(/v/,"",$2); print $2}')
 if [ $(compare_version "$_nft_version" "1.0.7") -eq 1 ]; then
 	# nft is the full-featured version.
@@ -182,6 +185,12 @@ elif [ $(compare_version "$_nft_version" "1.0.0") -eq 1 ]; then
 else
 	# nft without --define
 	_NFT=3
+fi
+
+# service special whitelist
+if [ -z "$GLOBAL_WHITELIST" ]; then
+	FILE_WHITE4="$_SERVICE/$FILE_WHITE4"
+	FILE_WHITE6="$_SERVICE/$FILE_WHITE6"
 fi
 
 _action="$2"
